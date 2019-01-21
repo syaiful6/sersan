@@ -9,7 +9,7 @@ type SessionAlreadyExists struct {
 }
 
 func (err *SessionAlreadyExists) Error() string {
-	return fmt.Sprintf("There is already exists a session with the same session ID: %s", err.NewSession.ID) 
+	return fmt.Sprintf("There is already exists a session with the same session ID: %s", err.NewSession.ID)
 }
 
 type SessionDoesNotExist struct {

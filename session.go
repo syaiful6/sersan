@@ -2,7 +2,7 @@ package sersan
 
 import (
 	"encoding/base32"
-	"net/http"
+	"fmt"
 	"strings"
 	"time"
 
@@ -29,33 +29,33 @@ type Session struct {
 	// Value of authentication ID, separate from rest
 	AuthID string
 	// Values contains the user-data for the session.
-	Values  map[interface{}]interface{}
+	Values map[interface{}]interface{}
 	// When this session was created in UTC
 	CreatedAt time.Time
 	// When this session was last accessed in UTC
 	AccessedAt time.Time
 }
 
-func NewSession(id, authId string, now) *Session {
+func NewSession(id, authId string, now time.Time) *Session {
 	return &Session{
-		ID: id,
-		AuthID: authId,
-		Values: make(map[interface{}]interface{}),
-		CreatedAt: now,
+		ID:         id,
+		AuthID:     authId,
+		Values:     make(map[interface{}]interface{}),
+		CreatedAt:  now,
 		AccessedAt: now,
 	}
 }
 
 type DecomposedSession struct {
-	AuthID string
-	Force ForceInvalidate
+	AuthID     string
+	Force      ForceInvalidate
 	Decomposed map[interface{}]interface{}
 }
 
 func decomposeSession(authKey string, sess map[interface{}]interface{}) *DecomposedSession {
 	var (
 		authId = ""
-		force = DontForceInvalidate
+		force  = DontForceInvalidate
 	)
 	if v, ok := sess[authKey]; ok {
 		delete(sess, authKey)
@@ -67,8 +67,8 @@ func decomposeSession(authKey string, sess map[interface{}]interface{}) *Decompo
 	}
 
 	return &DecomposedSession{
-		AuthID: authId,
-		Force: force,
+		AuthID:     authId,
+		Force:      force,
 		Decomposed: sess,
 	}
 }
@@ -104,88 +104,111 @@ type Storage interface {
 // This struct hold all info needed.
 type ServerSessionState struct {
 	// Cookie Name
-	CookieName string
-	AuthKey string
-	storage Storage
-	Options *Options
-	Codecs []securecookie.Codec	
+	cookieName                   string
+	AuthKey                      string
+	storage                      Storage
+	Options                      *Options
+	Codecs                       []securecookie.Codec
 	IdleTimeout, AbsoluteTimeout int
 }
 
 type SaveSessionToken struct {
 	sess *Session
-	now time.Time
+	now  time.Time
 }
 
-func NewServerSessionState(storage Storage, codecs []securecookie.Codec) *ServerSessionState {
+func NewServerSessionState(storage Storage, keyPairs ...[]byte) *ServerSessionState {
 	return &ServerSessionState{
-		CookieName: "sersan:session",
-		storage: storage,
-		Codecs: codecs,
+		cookieName:      "sersan:session",
+		storage:         storage,
+		Codecs:          securecookie.CodecsFromPairs(keyPairs...),
+		IdleTimeout:     604800,  // 7 days
+		AbsoluteTimeout: 5184000, // 60 days
 		Options: &Options{
-			Path: "/",
+			Path:     "/",
 			HttpOnly: true,
-		}
+		},
 	}
+}
+
+func (ss *ServerSessionState) SetCookieName(name string) error {
+	if !isCookieNameValid(name) {
+		return fmt.Errorf("sersan: invalid character in cookie name: %s", name)
+	}
+	ss.cookieName = name
+	return nil
 }
 
 func (ss *ServerSessionState) NextExpires(session *Session) time.Time {
 	var (
-		idle time.Time
+		idle     time.Time
 		absolute time.Time
 	)
 
 	if ss.IdleTimeout != 0 {
-		idle = session.AccessedAt.Add(time.Second * ss.IdleTimeout)
+		idle = session.AccessedAt.Add(time.Second * time.Duration(ss.IdleTimeout))
 	}
 
 	if ss.AbsoluteTimeout != 0 {
-		absolute = session.CreatedAt.Add(time.Second * ss.AbsoluteTimeout)
+		absolute = session.CreatedAt.Add(time.Second * time.Duration(ss.AbsoluteTimeout))
 	}
 
-	if idle.Before(absolute) {
+	if !idle.IsZero() && idle.Before(absolute) {
 		return idle
 	}
 
 	return absolute
 }
 
-func (ss *ServerSessionState) IsSessionExpired(now time.Time, session *Session) bool {
-	expires := ss.NextExpires(sess)
-	if expires.After(now) {
-		return true
+func (ss *ServerSessionState) nextExpiresMaxAge(sess *Session) int {
+	var (
+		expires = ss.NextExpires(sess)
+		now     = time.Now().UTC()
+	)
+
+	if expires.IsZero() {
+		return 0
 	}
-	return false
+	if expires.After(now) {
+		return -1
+	}
+
+	return int(expires.Sub(now).Seconds())
+}
+
+func (ss *ServerSessionState) IsSessionExpired(now time.Time, sess *Session) bool {
+	expires := ss.NextExpires(sess)
+	if !expires.IsZero() && expires.After(now) {
+		return false
+	}
+	return true
 }
 
 // Load the session map from the storage backend.
-func (ss *ServerSessionState) Load(r *http.Request) (map[interface{}]interface{}, *SaveSessionToken, error) {
+func (ss *ServerSessionState) Load(cookieValue string) (map[interface{}]interface{}, *SaveSessionToken, error) {
 	var (
 		err error
 		now = time.Now().UTC()
 	)
-	if c, errCookie := r.Cookie(ss.CookieName); errCookie == nil {
-		sessId := ""
-		err = securecookie.DecodeMulti(ss.CookieName, c.Value, &sessId, ss.CookieName.Codecs...)
-		if err == nil {
-			sess, err := ss.storage.Get(sessId)
-			if err != nil && sess != nil {
-				if !ss.IsSessionExpired(now, sess) {
-					return recomposeSession(ss.AuthKey, sess.AuthID, sess.Values), &SaveSessionToken{now: now, sess: sess,}, err
-				}
+
+	if cookieValue != "" {
+		sess, err := ss.storage.Get(cookieValue)
+		if err == nil && sess != nil {
+			if !ss.IsSessionExpired(now, sess) {
+				return recomposeSession(ss.AuthKey, sess.AuthID, sess.Values), &SaveSessionToken{now: now, sess: sess}, err
 			}
 		}
 	}
 
 	data := make(map[interface{}]interface{})
 
-	return data, &SaveSessionToken{now: now, sess: data}, err
+	return data, &SaveSessionToken{now: now, sess: nil}, err
 }
 
-// 
+//
 func (ss *ServerSessionState) Save(token *SaveSessionToken, data map[interface{}]interface{}) (*Session, error) {
 	outputDecomp := decomposeSession(ss.AuthKey, data)
-	sess, err := ss.invalidateIfNeeded(ss.sess, outputDecomp)
+	sess, err := ss.invalidateIfNeeded(token.sess, outputDecomp)
 	if err != nil {
 		return nil, err
 	}
@@ -202,20 +225,20 @@ func (ss *ServerSessionState) Save(token *SaveSessionToken, data map[interface{}
 func (ss *ServerSessionState) invalidateIfNeeded(sess *Session, decomposed *DecomposedSession) (*Session, error) {
 	var (
 		authID string
-		err error
+		err    error
 	)
 
 	if sess != nil && sess.AuthID != "" {
 		authID = sess.AuthID
 	}
 
-	invalidateCurrent := decomposed.force != DontForceInvalidate || decomposed.AuthID != authID
-	invalidateOthers := decomposed.force == AllSessionIDsOfLoggedUser && decomposed.AuthID != ""
+	invalidateCurrent := decomposed.Force != DontForceInvalidate || decomposed.AuthID != authID
+	invalidateOthers := decomposed.Force == AllSessionIDsOfLoggedUser && decomposed.AuthID != ""
 
 	if invalidateCurrent && sess != nil {
 		err = ss.storage.Destroy(sess.ID)
 		if err != nil {
-			nil, err
+			return nil, err
 		}
 	}
 
@@ -235,7 +258,7 @@ func (ss *ServerSessionState) invalidateIfNeeded(sess *Session, decomposed *Deco
 
 func (ss *ServerSessionState) saveSessionOnDb(now time.Time, sess *Session, dec *DecomposedSession) (*Session, error) {
 	var err error
-	
+
 	if sess == nil && dec.AuthID == "" && len(dec.Decomposed) == 0 {
 		return nil, err
 	}
@@ -254,7 +277,7 @@ func (ss *ServerSessionState) saveSessionOnDb(now time.Time, sess *Session, dec 
 
 	nsess := NewSession(sess.ID, dec.AuthID, now)
 	nsess.CreatedAt = sess.CreatedAt
-	nsess.Values = sess.Values
+	nsess.Values = dec.Decomposed
 
 	err = ss.storage.Replace(sess)
 

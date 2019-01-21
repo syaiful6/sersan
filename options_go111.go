@@ -8,8 +8,8 @@ import "net/http"
 //
 // Fields are a subset of http.Cookie fields.
 type Options struct {
-	Path   string
-	Domain string
+	Path     string
+	Domain   string
 	Secure   bool
 	HttpOnly bool
 	// Defaults to http.SameSiteDefaultMode
