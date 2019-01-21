@@ -153,3 +153,96 @@ func TestLoadSessionExists(t *testing.T) {
 		t.Error("Expected token session to deep equal session returned by storage")
 	}
 }
+
+func TestNextExpires(t *testing.T) {
+	var stnt = func(i, a int) *ServerSessionState {
+		ss := NewServerSessionState(&tntStorage{})
+		ss.IdleTimeout = i
+		ss.AbsoluteTimeout = a
+
+		return ss
+	}
+
+	var session = func(a, c time.Time) *Session {
+		sess := NewSession("irr", "irr", a)
+		sess.CreatedAt = c
+
+		return sess
+	}
+
+	fakenow, _ := time.Parse("2006-01-02 15:04:05 MST", "2015-05-27 17:55:41 UTC")
+
+	var zero time.Time
+
+	tests := []struct {
+		iddle, absolute                int
+		accessedAt, createdAt, expires time.Time
+	}{
+		{0, 0, zero, zero, zero},
+		{1, 0, fakenow, zero, fakenow.Add(time.Second)},
+		{0, 1, zero, fakenow, fakenow.Add(time.Second)},
+		{3, 7, fakenow, fakenow, fakenow.Add(time.Second * 3)},
+		{3, 7, fakenow.Add(time.Second * 4), fakenow, fakenow.Add(time.Second * 7)},
+		{3, 7, fakenow.Add(time.Second * 5), fakenow, fakenow.Add(time.Second * 7)},
+	}
+
+	var (
+		expires time.Time
+		ss      *ServerSessionState
+	)
+	for i, test := range tests {
+		ss = stnt(test.iddle, test.absolute)
+		expires = ss.NextExpires(session(test.accessedAt, test.createdAt))
+		if !expires.Equal(test.expires) {
+			t.Errorf("%d: expected %v to be equal %v", i, expires, test.expires)
+		}
+	}
+}
+
+func TestSaveSessionNothing(t *testing.T) {
+	storage := prepareMockStorage([]*Session{})
+	ss := NewServerSessionState(storage)
+	token := &SaveSessionToken{now: time.Now().UTC(), sess: nil}
+	sess, err := ss.Save(token, make(map[interface{}]interface{}))
+
+	if sess != nil {
+		t.Error("Expected returned session to be nil")
+	}
+	if err != nil {
+		t.Errorf("Expected non nil err, returned %v", err)
+	}
+
+	if !reflect.DeepEqual(storage.op, []*mockOperation{}) {
+		t.Errorf("expected storage operation to be empty, returned %d instead", len(storage.op))
+	}
+}
+
+func TestSaveSessionInitialize(t *testing.T) {
+	storage := prepareMockStorage([]*Session{})
+	ss := NewServerSessionState(storage)
+	token := &SaveSessionToken{now: time.Now().UTC(), sess: nil}
+	data := map[interface{}]interface{}{
+		"a": "b",
+	}
+	sess, err := ss.Save(token, data)
+	if sess == nil {
+		t.Error("Expected returned session to be non nil")
+	}
+	if err != nil {
+		t.Errorf("Expected non nil err, returned %v", err)
+	}
+
+	expectedOp := []*mockOperation{
+		&mockOperation{
+			tag:     "Insert",
+			session: sess,
+		},
+	}
+	if !reflect.DeepEqual(sess.Values, data) {
+		t.Error("expected sess.Values to be equals written data")
+	}
+
+	if !reflect.DeepEqual(storage.op, expectedOp) {
+		t.Error("Invalid storage operation")
+	}
+}

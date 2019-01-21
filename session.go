@@ -153,7 +153,15 @@ func (ss *ServerSessionState) NextExpires(session *Session) time.Time {
 		absolute = session.CreatedAt.Add(time.Second * time.Duration(ss.AbsoluteTimeout))
 	}
 
-	if !idle.IsZero() && idle.Before(absolute) {
+	if idle.IsZero() {
+		return absolute
+	}
+
+	if absolute.IsZero() {
+		return idle
+	}
+
+	if idle.Before(absolute) {
 		return idle
 	}
 
