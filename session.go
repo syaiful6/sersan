@@ -80,26 +80,6 @@ func recomposeSession(authKey, authId string, sess map[interface{}]interface{}) 
 	return sess
 }
 
-// A storage backend, for server-side sessions.
-type Storage interface {
-	// Get the session for the given session ID. Returns nil if it not exists
-	// rather than returning error
-	Get(id string) (*Session, error)
-	// Delete the session with given session ID. Does not do anything if the session
-	// is not found.
-	Destroy(id string) error
-	// Delete all sessions of the given auth ID. Does not do anything if there
-	// are no sessions of the given auth ID.
-	DestroyAllOfAuthId(authId string) error
-	// Insert a new session. return 'SessionAlreadyExists' error there already
-	// exists a session with the same session ID. We only call this method after
-	// generating a fresh session ID
-	Insert(sess *Session) error
-	// Replace the contents of a session. Return 'SessionDoesNotExist' if
-	// there is no session with the given  session ID
-	Replace(sess *Session) error
-}
-
 // The server-side session backend needs to maintain some statein order to work.
 // This struct hold all info needed.
 type ServerSessionState struct {
@@ -287,7 +267,7 @@ func (ss *ServerSessionState) saveSessionOnDb(now time.Time, sess *Session, dec 
 	nsess.CreatedAt = sess.CreatedAt
 	nsess.Values = dec.Decomposed
 
-	err = ss.storage.Replace(sess)
+	err = ss.storage.Replace(nsess)
 
 	return nsess, err
 }
