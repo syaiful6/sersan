@@ -36,7 +36,7 @@ func generateSession(hasAuthID bool) *sersan.Session {
 	}
 
 	sess := sersan.NewSession(id, authId, time.Now().UTC())
-	sess.AccessedAt = sess.AccessedAt.Add(time.Duration(rand.Int()) * time.Second)
+	sess.AccessedAt = sess.AccessedAt.Add(time.Duration(rand.Uint32()) * time.Second)
 
 	for i := 0; i < 20; i++ {
 		sess.Values[strconv.Itoa(rand.Int())] = strconv.Itoa(rand.Int())
