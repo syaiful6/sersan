@@ -267,7 +267,7 @@ func (ss *ServerSessionState) saveSessionOnDb(now time.Time, sess *Session, dec 
 	nsess.CreatedAt = sess.CreatedAt
 	nsess.Values = dec.Decomposed
 
-	err = ss.storage.Replace(sess)
+	err = ss.storage.Replace(nsess)
 
 	return nsess, err
 }

@@ -4,11 +4,11 @@ import (
 	"testing"
 )
 
-func TestnewCookieFromOptions(t *testing.T) {
-	tests := []struct{
+func TestNewCookieFromOptions(t *testing.T) {
+	tests := []struct {
 		name, value, path, domain string
-		maxAge int
-		secure, httpOnly bool
+		maxAge                    int
+		secure, httpOnly          bool
 	}{
 		{"", "bar", "/foo/bar", "foo.example.com", 3600, true, true},
 		{"foo", "", "/foo/bar", "foo.example.com", 3600, true, true},
@@ -21,9 +21,9 @@ func TestnewCookieFromOptions(t *testing.T) {
 
 	for i, v := range tests {
 		opt := &Options{
-			Path: v.path,
-			Domain: v.domain,
-			Secure: v.secure,
+			Path:     v.path,
+			Domain:   v.domain,
+			Secure:   v.secure,
 			HttpOnly: v.httpOnly,
 		}
 		cookie := newCookieFromOptions(v.name, v.value, v.maxAge, opt)

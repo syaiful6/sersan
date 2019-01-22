@@ -29,15 +29,15 @@ type RecorderOperation struct {
 // Storage recorder implements sersan's storage interface that record all operations
 // performed. This is intended for testing purpose.
 type StorageRecorder struct {
-	sessions map[string]*Session
+	sessions   map[string]*Session
 	operations []*RecorderOperation
 }
 
 // NewRecorder returns an empty StorageRecorder
 func NewStorageRecorder() *StorageRecorder {
 	return &StorageRecorder{
-		sessions: make(map[string]*Session),
-		operations:  []*RecorderOperation{},
+		sessions:   make(map[string]*Session),
+		operations: []*RecorderOperation{},
 	}
 }
 
@@ -49,13 +49,13 @@ func PrepareStorageRecorder(sessions []*Session) *StorageRecorder {
 	}
 
 	return &StorageRecorder{
-		sessions: sess,
+		sessions:   sess,
 		operations: []*RecorderOperation{},
 	}
 }
 
 func (s *StorageRecorder) Get(id string) (*Session, error) {
-	s.operations = append(s.operations, &RecorderOperation{Tag: "Get", ID: id,})
+	s.operations = append(s.operations, &RecorderOperation{Tag: "Get", ID: id})
 	if v, ok := s.sessions[id]; ok {
 		return v, nil
 	}
@@ -67,7 +67,7 @@ func (s *StorageRecorder) Destroy(id string) error {
 	if _, ok := s.sessions[id]; ok {
 		delete(s.sessions, id)
 	}
-	s.operations = append(s.operations, &RecorderOperation{Tag: "Destroy", ID: id,})
+	s.operations = append(s.operations, &RecorderOperation{Tag: "Destroy", ID: id})
 
 	return nil
 }
@@ -80,15 +80,15 @@ func (s *StorageRecorder) DestroyAllOfAuthId(authId string) error {
 		}
 	}
 	s.sessions = nmap
-	s.operations = append(s.operations, &RecorderOperation{Tag: "DestroyAllOfAuthId", AuthID: authId,})
+	s.operations = append(s.operations, &RecorderOperation{Tag: "DestroyAllOfAuthId", AuthID: authId})
 
 	return nil
 }
 
 func (s *StorageRecorder) Insert(sess *Session) error {
-	s.operations = append(s.operations, &RecorderOperation{Tag: "Insert", Session: sess,})
+	s.operations = append(s.operations, &RecorderOperation{Tag: "Insert", Session: sess})
 	if old, ok := s.sessions[sess.ID]; ok {
-		return &SessionAlreadyExists{OldSession: old, NewSession: sess,}
+		return &SessionAlreadyExists{OldSession: old, NewSession: sess}
 	}
 
 	s.sessions[sess.ID] = sess
@@ -96,13 +96,13 @@ func (s *StorageRecorder) Insert(sess *Session) error {
 }
 
 func (s *StorageRecorder) Replace(sess *Session) error {
-	s.operations = append(s.operations, &RecorderOperation{Tag: "Replace", Session: sess,})
+	s.operations = append(s.operations, &RecorderOperation{Tag: "Replace", Session: sess})
 	if _, ok := s.sessions[sess.ID]; ok {
 		s.sessions[sess.ID] = sess
 		return nil
 	}
 
-	return &SessionDoesNotExist{Session: sess,}
+	return &SessionDoesNotExist{Session: sess}
 }
 
 // Get list of Operations performed in StorageRecorder, remove it from the storage

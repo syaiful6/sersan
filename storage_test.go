@@ -37,13 +37,13 @@ func generateSession(hasAuthID bool) *Session {
 
 func TestGet(t *testing.T) {
 	sess1 := NewSession("123456789-123456789-123456789-12", "foo", time.Now().UTC())
-	tests := []struct{
+	tests := []struct {
 		sess         []*Session
 		getId        string
 		expectedSess *Session
 	}{
-		{[]*Session{}, generateSessionId(), nil,},
-		{[]*Session{sess1,}, "123456789-123456789-123456789-12", sess1,},
+		{[]*Session{}, generateSessionId(), nil},
+		{[]*Session{sess1}, "123456789-123456789-123456789-12", sess1},
 	}
 
 	var (
@@ -71,10 +71,10 @@ func TestDestroyNotExists(t *testing.T) {
 
 func TestGetDestroyInsertOp(t *testing.T) {
 	storage := NewStorageRecorder()
-	s       := generateSession(true)
+	s := generateSession(true)
 
 	var (
-		s1 *Session
+		s1  *Session
 		err error
 	)
 
