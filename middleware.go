@@ -87,6 +87,8 @@ func (w *SessionResponseWriter) saveSession() error {
 		panic("should not call saveSession twice")
 	}
 
+	w.hasWritten = true
+
 	var (
 		err  error
 		sess *Session
