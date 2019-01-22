@@ -109,6 +109,6 @@ func (w *SessionResponseWriter) saveSession() error {
 		return err
 	}
 
-	http.SetCookie(w, newCookieFromOptions(w.serverState.cookieName, encoded, w.serverState.nextExpiresMaxAge(sess), w.serverState.Options))
+	http.SetCookie(w, newCookieFromOptions(w.serverState.cookieName, encoded, w.serverState.NextExpiresMaxAge(sess), w.serverState.Options))
 	return nil
 }

@@ -148,7 +148,7 @@ func (ss *ServerSessionState) NextExpires(session *Session) time.Time {
 	return absolute
 }
 
-func (ss *ServerSessionState) nextExpiresMaxAge(sess *Session) int {
+func (ss *ServerSessionState) NextExpiresMaxAge(sess *Session) int {
 	var (
 		expires = ss.NextExpires(sess)
 		now     = time.Now().UTC()
@@ -157,7 +157,7 @@ func (ss *ServerSessionState) nextExpiresMaxAge(sess *Session) int {
 	if expires.IsZero() {
 		return 0
 	}
-	if expires.After(now) {
+	if expires.Before(now) {
 		return -1
 	}
 
