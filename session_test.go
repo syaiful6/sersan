@@ -104,10 +104,12 @@ func TestNextExpires(t *testing.T) {
 	var (
 		expires time.Time
 		ss      *ServerSessionState
+		sess    *Session
 	)
 	for i, test := range tests {
 		ss = stnt(test.iddle, test.absolute)
-		expires = ss.NextExpires(session(test.accessedAt, test.createdAt))
+		sess = session(test.accessedAt, test.createdAt)
+		expires = sess.ExpireAt(ss.IdleTimeout, ss.AbsoluteTimeout)
 		if !expires.Equal(test.expires) {
 			t.Errorf("%d: expected %v to be equal %v", i, expires, test.expires)
 		}

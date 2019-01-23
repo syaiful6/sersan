@@ -46,6 +46,57 @@ func NewSession(id, authId string, now time.Time) *Session {
 	}
 }
 
+func (sess *Session) ExpireAt(IdleTimeout, absoluteTimeout int) time.Time {
+	var (
+		idle     time.Time
+		absolute time.Time
+	)
+
+	if IdleTimeout != 0 {
+		idle = sess.AccessedAt.Add(time.Second * time.Duration(IdleTimeout))
+	}
+
+	if absoluteTimeout != 0 {
+		absolute = sess.CreatedAt.Add(time.Second * time.Duration(absoluteTimeout))
+	}
+
+	if idle.IsZero() {
+		return absolute
+	}
+
+	if absolute.IsZero() {
+		return idle
+	}
+
+	if idle.Before(absolute) {
+		return idle
+	}
+
+	return absolute
+}
+
+func (sess *Session) MaxAge(IdleTimeout, absoluteTimeout int, now time.Time) int {
+	expires := sess.ExpireAt(IdleTimeout, absoluteTimeout)
+
+	if expires.IsZero() {
+		return 0
+	}
+	if expires.Before(now) {
+		return -1
+	}
+
+	return int(expires.Sub(now).Seconds())
+}
+
+func (sess *Session) IsSessionExpired(idleTimeout, absoluteTimeout int, now time.Time) bool {
+	expires := sess.ExpireAt(idleTimeout, absoluteTimeout)
+
+	if !expires.IsZero() && expires.After(now) {
+		return false
+	}
+	return true
+}
+
 type DecomposedSession struct {
 	AuthID     string
 	Force      ForceInvalidate
@@ -119,57 +170,6 @@ func (ss *ServerSessionState) SetCookieName(name string) error {
 	return nil
 }
 
-func (ss *ServerSessionState) NextExpires(session *Session) time.Time {
-	var (
-		idle     time.Time
-		absolute time.Time
-	)
-
-	if ss.IdleTimeout != 0 {
-		idle = session.AccessedAt.Add(time.Second * time.Duration(ss.IdleTimeout))
-	}
-
-	if ss.AbsoluteTimeout != 0 {
-		absolute = session.CreatedAt.Add(time.Second * time.Duration(ss.AbsoluteTimeout))
-	}
-
-	if idle.IsZero() {
-		return absolute
-	}
-
-	if absolute.IsZero() {
-		return idle
-	}
-
-	if idle.Before(absolute) {
-		return idle
-	}
-
-	return absolute
-}
-
-func (ss *ServerSessionState) NextExpiresMaxAge(sess *Session) int {
-	expires := ss.NextExpires(sess)
-	now     := time.Now().UTC()
-
-	if expires.IsZero() {
-		return 0
-	}
-	if expires.Before(now) {
-		return -1
-	}
-
-	return int(expires.Sub(now).Seconds())
-}
-
-func (ss *ServerSessionState) IsSessionExpired(now time.Time, sess *Session) bool {
-	expires := ss.NextExpires(sess)
-	if !expires.IsZero() && expires.After(now) {
-		return false
-	}
-	return true
-}
-
 // Load the session map from the storage backend.
 func (ss *ServerSessionState) Load(cookieValue string) (map[interface{}]interface{}, *SaveSessionToken, error) {
 	var (
@@ -180,7 +180,7 @@ func (ss *ServerSessionState) Load(cookieValue string) (map[interface{}]interfac
 	if cookieValue != "" {
 		sess, err := ss.storage.Get(cookieValue)
 		if err == nil && sess != nil {
-			if !ss.IsSessionExpired(now, sess) {
+			if !sess.IsSessionExpired(ss.IdleTimeout, ss.AbsoluteTimeout, now) {
 				return recomposeSession(ss.AuthKey, sess.AuthID, sess.Values), &SaveSessionToken{now: now, sess: sess}, err
 			}
 		}

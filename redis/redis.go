@@ -1,6 +1,8 @@
 package redis
 
 import (
+	"time"
+
 	"github.com/gomodule/redigo/redis"
 
 	"github.com/syaiful6/sersan"
@@ -29,9 +31,8 @@ func (rs *RediStore) SetDefaultExpire(age int) {
 func NewRediStore(pool *redis.Pool) (*RediStore, error) {
 	rs := &RediStore{
 		Pool:            pool,
-		DefaultExpire:   86400 * 30, // 30 days
-		IdleTimeout:     604800,     // 7 days
-		AbsoluteTimeout: 5184000,    // 60 days
+		IdleTimeout:     604800,  // 7 days
+		AbsoluteTimeout: 5184000, // 60 days
 		keyPrefix:       "sersan:redis:",
 		serializer:      GobSerializer{},
 	}
@@ -67,11 +68,7 @@ func (rs *RediStore) Destroy(id string) error {
 		return nil
 	}
 
-	if sess.AuthID != "" {
-		_, err = destroyScript.Do(conn, rs.keyPrefix+id, rs.keyPrefix+sess.AuthID)
-	} else {
-		_, err = destroyScript.Do(conn, rs.keyPrefix+id, "")
-	}
+	_, err = destroyScript.Do(conn, rs.keyPrefix+id, rs.authKey(sess.AuthID))
 
 	return err
 }
@@ -84,7 +81,7 @@ func (rs *RediStore) DestroyAllOfAuthId(authId string) error {
 		return err
 	}
 
-	_, err := destroyAllOfAuthIdScript.Do(conn, rs.keyPrefix+authId)
+	_, err := destroyAllOfAuthIdScript.Do(conn, rs.authKey(authId))
 	return err
 }
 
@@ -109,14 +106,8 @@ func (rs *RediStore) Insert(sess *sersan.Session) error {
 		return err
 	}
 
-	age := rs.getExpire(sess)
-
-	authKey := ""
-	if sess.AuthID != "" {
-		authKey = rs.keyPrefix + sess.AuthID
-	}
-
-	_, err = insertScript.Do(conn, rs.keyPrefix+sess.ID, authKey, age, b)
+	_, err = insertScript.Do(
+		conn, rs.keyPrefix+sess.ID, rs.authKey(sess.AuthID), rs.getExpire(sess), b)
 	return err
 }
 
@@ -143,18 +134,16 @@ func (rs *RediStore) Replace(sess *sersan.Session) error {
 
 	age := rs.getExpire(sess)
 
-	oldAuthKey := ""
-	if oldSess.AuthID != "" {
-		oldAuthKey = rs.keyPrefix + oldSess.AuthID
-	}
-
-	authKey := ""
-	if sess.AuthID != "" {
-		authKey = rs.keyPrefix + sess.AuthID
-	}
-
-	_, err = replaceScript.Do(conn, rs.keyPrefix+sess.ID, oldAuthKey, authKey, age, b)
+	_, err = replaceScript.Do(conn, rs.keyPrefix+sess.ID, rs.authKey(oldSess.AuthID),
+		rs.authKey(sess.AuthID), age, b)
 	return err
+}
+
+func (rs *RediStore) authKey(authId string) string {
+	if authId != "" {
+		return rs.keyPrefix + ":auth:" + authId
+	}
+	return ""
 }
 
 func (rs *RediStore) ping() (bool, error) {
@@ -168,16 +157,7 @@ func (rs *RediStore) ping() (bool, error) {
 }
 
 func (rs *RediStore) getExpire(sess *sersan.Session) int {
-	ss := sersan.NewServerSessionState(rs)
-	ss.IdleTimeout = rs.IdleTimeout
-	ss.AbsoluteTimeout = rs.AbsoluteTimeout
-
-	age := ss.NextExpiresMaxAge(sess)
-	if age <= 0 {
-		age = rs.DefaultExpire
-	}
-
-	return age
+	return sess.MaxAge(rs.IdleTimeout, rs.AbsoluteTimeout, time.Now().UTC())
 }
 
 func get(c redis.Conn, key string, serializer SessionSerializer) (*sersan.Session, error) {
