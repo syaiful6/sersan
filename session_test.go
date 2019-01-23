@@ -104,10 +104,12 @@ func TestNextExpires(t *testing.T) {
 	var (
 		expires time.Time
 		ss      *ServerSessionState
+		sess    *Session
 	)
 	for i, test := range tests {
 		ss = stnt(test.iddle, test.absolute)
-		expires = ss.NextExpires(session(test.accessedAt, test.createdAt))
+		sess = session(test.accessedAt, test.createdAt)
+		expires = sess.ExpireAt(ss.IdleTimeout, ss.AbsoluteTimeout)
 		if !expires.Equal(test.expires) {
 			t.Errorf("%d: expected %v to be equal %v", i, expires, test.expires)
 		}
@@ -166,7 +168,7 @@ func TestSaveSessionInitialize(t *testing.T) {
 // We already test the other functions that ServerSessionState.Save calls.
 // A single unit test just to be sure everything is connected should be enough.
 func TestComplexSaveSession(t *testing.T) {
-	var op   []*RecorderOperation
+	var op []*RecorderOperation
 
 	fakenow, _ := time.Parse("2006-01-02 15:04:05 MST", "2015-05-27 17:55:41 UTC")
 	emptyMap := make(map[interface{}]interface{})

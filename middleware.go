@@ -13,9 +13,9 @@ type SessionResponseWriter struct {
 
 	hasWritten bool
 
-	data        map[interface{}]interface{}
-	token       *SaveSessionToken
-	serverState *ServerSessionState
+	data  map[interface{}]interface{}
+	token *SaveSessionToken
+	ss    *ServerSessionState
 }
 
 func newSessionResponseWriter(w http.ResponseWriter, token *SaveSessionToken) *SessionResponseWriter {
@@ -45,7 +45,7 @@ func SessionMiddleware(ss *ServerSessionState) func(http.Handler) http.Handler {
 
 			nw := newSessionResponseWriter(w, token)
 			nw.data = data
-			nw.serverState = ss
+			nw.ss = ss
 
 			nr := r.WithContext(context.WithValue(r.Context(), sessionContextKey{}, data))
 
@@ -94,21 +94,24 @@ func (w *SessionResponseWriter) saveSession() error {
 		sess *Session
 	)
 
-	if sess, err = w.serverState.Save(w.token, w.data); err != nil {
+	if sess, err = w.ss.Save(w.token, w.data); err != nil {
 		return err
 	}
 
 	if sess == nil {
-		http.SetCookie(w, newCookieFromOptions(w.serverState.cookieName, "", -1, w.serverState.Options))
+		http.SetCookie(w,
+			newCookieFromOptions(w.ss.cookieName, "", -1, w.ss.Options))
 		return nil
 	}
 
-	encoded, err := securecookie.EncodeMulti(w.serverState.cookieName, sess.ID,
-		w.serverState.Codecs...)
+	encoded, err := securecookie.EncodeMulti(w.ss.cookieName, sess.ID,
+		w.ss.Codecs...)
 	if err != nil {
 		return err
 	}
 
-	http.SetCookie(w, newCookieFromOptions(w.serverState.cookieName, encoded, w.serverState.nextExpiresMaxAge(sess), w.serverState.Options))
+	http.SetCookie(w,
+		newCookieFromOptions(w.ss.cookieName, encoded,
+			sess.MaxAge(w.ss.IdleTimeout, w.ss.AbsoluteTimeout, w.token.now), w.ss.Options))
 	return nil
 }
