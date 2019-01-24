@@ -39,12 +39,12 @@ type SessionHash struct {
 	AccessedAt string
 }
 
-func newSessionHashFrom(sess *sersan.Session, serializer SessionSerializer) (*sersan.Session, error) {
-	var sh *SessionHash
+func newSessionHashFrom(sess *sersan.Session, serializer SessionSerializer) (*SessionHash, error) {
+	var sh = new(SessionHash)
 
 	sh.AuthID = sess.AuthID
-	sh.CreatedAt = time.Format(time.UnixDate)
-	sh.AccessedAt = time.Format(time.UnixDate)
+	sh.CreatedAt = sess.CreatedAt.Format(time.UnixDate)
+	sh.AccessedAt = sess.AccessedAt.Format(time.UnixDate)
 
 	bytes, err := serializer.Serialize(sess)
 	if err != nil {
@@ -52,16 +52,16 @@ func newSessionHashFrom(sess *sersan.Session, serializer SessionSerializer) (*se
 	}
 
 	sh.Values = bytes
-	return sh
+	return sh, nil
 }
 
 func (sh *SessionHash) toSession(id string, serializer SessionSerializer) (*sersan.Session, error) {
-	var sess *sersan.Session
 	createdAt, err := time.Parse(time.UnixDate, sh.CreatedAt)
 	if err != nil {
 		return nil, err
 	}
-	sess.CreatedAt = createdAt
+
+	sess := sersan.NewSession(id, sh.AuthID, createdAt)
 
 	accessedAt, err := time.Parse(time.UnixDate, sh.AccessedAt)
 	if err != nil {
@@ -69,9 +69,9 @@ func (sh *SessionHash) toSession(id string, serializer SessionSerializer) (*sers
 	}
 	sess.AccessedAt = accessedAt
 
-	values, err = serializer.Deserialize(sh.Values, sess)
+	err = serializer.Deserialize(sh.Values, sess)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	sess.ID = id
@@ -84,6 +84,7 @@ func (sh *SessionHash) toSession(id string, serializer SessionSerializer) (*sers
 func NewRediStore(pool *redis.Pool) (*RediStore, error) {
 	rs := &RediStore{
 		Pool:            pool,
+		DefaultExpire:   604800,
 		IdleTimeout:     604800,  // 7 days
 		AbsoluteTimeout: 5184000, // 60 days
 		keyPrefix:       "sersan:redis:",
@@ -101,7 +102,7 @@ func (rs *RediStore) Get(id string) (*sersan.Session, error) {
 		return nil, err
 	}
 
-	data, err := conn.Do("HGETALL", rs.keyPrefix+id)
+	data, err := redis.Values(conn.Do("HGETALL", rs.keyPrefix+id))
 	if err != nil {
 		return nil, err
 	}
@@ -110,7 +111,7 @@ func (rs *RediStore) Get(id string) (*sersan.Session, error) {
 		return nil, nil
 	}
 
-	var sh *SessionHash
+	var sh = new(SessionHash)
 	if err = redis.ScanStruct(data, sh); err != nil {
 		return nil, err
 	}
@@ -126,7 +127,30 @@ func (rs *RediStore) Destroy(id string) error {
 		return err
 	}
 
-	_, err := destroyScript.Do(conn, rs.keyPrefix+id, rs.keyPrefix + ":auth:")
+	sk := rs.keyPrefix + id
+	authID, err := redis.String(conn.Do("HGET", sk, "AuthID"))
+	if err != nil {
+		if err == redis.ErrNil {
+			return nil
+		}
+		return err
+	}
+
+	err = conn.Send("MULTI")
+	if err != nil {
+		return err
+	}
+	err = conn.Send("DEL", sk)
+	if err != nil {
+		return err
+	}
+	if authID != "" {
+		err = conn.Send("SREM", rs.authKey(authID), sk)
+		if err != nil {
+			return err
+		}
+	}
+	_, err = conn.Do("EXEC")
 	return err
 }
 
@@ -138,7 +162,13 @@ func (rs *RediStore) DestroyAllOfAuthId(authId string) error {
 		return err
 	}
 
-	_, err := destroyAllOfAuthIdScript.Do(conn, rs.authKey(authId))
+	authKey := rs.authKey(authId)
+	sessionIDs, err := redis.Strings(conn.Do("SMEMBERS", authKey))
+	if err != nil {
+		return err
+	}
+	_, err = conn.Do("DEL", redis.Args{}.Add(authKey).AddFlat(sessionIDs)...)
+
 	return err
 }
 
@@ -150,17 +180,27 @@ func (rs *RediStore) Insert(sess *sersan.Session) error {
 		return err
 	}
 
+	sk := rs.keyPrefix + sess.ID
+	exist, err := redis.Bool(conn.Do("EXISTS", sk, "AuthID"))
+	if err != nil {
+		return err
+	}
+	if exist {
+		return sersan.SessionAlreadyExists{ID: sess.ID}
+	}
+
 	sh, err := newSessionHashFrom(sess, rs.serializer)
 	if err != nil {
 		return err
 	}
 
-	args := redis.Args{}.Add(rs.keyPrefix+sess).Add(rs.authKey(sess.AuthID)).Add(rs.getExpire(sess)).AddFlat(sh)
-	reply, err = insertScript.Do(args...)
+	args := redis.Args{}.Add(sk).Add(rs.authKey(sess.AuthID))
+	args = args.Add(rs.getExpire(sess)).AddFlat(sh)
+	_, err = insertScript.Do(conn, args...)
 	if err != nil {
 		return err
 	}
-
+	return nil
 }
 
 func (rs *RediStore) Replace(sess *sersan.Session) error {
@@ -171,24 +211,24 @@ func (rs *RediStore) Replace(sess *sersan.Session) error {
 		return err
 	}
 
-	oldSess, err := get(conn, rs.keyPrefix+sess.ID, rs.serializer)
+	sk := rs.keyPrefix + sess.ID
+	oldAuthID, err := redis.String(conn.Do("HGET", sk, "AuthID"))
+	if err != nil && err == redis.ErrNil {
+		return sersan.SessionDoesNotExist{ID: sess.ID}
+	}
+
+	sh, err := newSessionHashFrom(sess, rs.serializer)
 	if err != nil {
 		return err
 	}
-	if oldSess == nil {
-		return &sersan.SessionDoesNotExist{Session: sess}
-	}
-
-	b, err := rs.serializer.Serialize(sess)
+	args := redis.Args{}.Add(sk).Add(rs.authKey(sess.AuthID))
+	args = args.Add(rs.authKey(oldAuthID)).Add(rs.getExpire(sess)).AddFlat(sh)
+	_, err = replaceScript.Do(conn, args...)
 	if err != nil {
 		return err
 	}
 
-	age := rs.getExpire(sess)
-
-	_, err = replaceScript.Do(conn, rs.keyPrefix+sess.ID, rs.authKey(oldSess.AuthID),
-		rs.authKey(sess.AuthID), age, b)
-	return err
+	return nil
 }
 
 func (rs *RediStore) authKey(authId string) string {
@@ -209,24 +249,9 @@ func (rs *RediStore) ping() (bool, error) {
 }
 
 func (rs *RediStore) getExpire(sess *sersan.Session) int {
-	return sess.MaxAge(rs.IdleTimeout, rs.AbsoluteTimeout, time.Now().UTC())
-}
-
-func get(c redis.Conn, key string, serializer SessionSerializer) (*sersan.Session, error) {
-	data, err := c.Do("GET", key)
-	if err != nil {
-		return nil, err
+	expire := sess.MaxAge(rs.IdleTimeout, rs.AbsoluteTimeout, time.Now().UTC())
+	if expire <= 0 {
+		return rs.DefaultExpire
 	}
-	if data == nil {
-		return nil, nil // no data was associated with this key
-	}
-
-	b, err := redis.Bytes(data, err)
-	if err != nil {
-		return nil, err
-	}
-	sess := new(sersan.Session)
-	err = serializer.Deserialize(b, sess)
-
-	return sess, err
+	return expire
 }

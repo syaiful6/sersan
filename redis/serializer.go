@@ -5,7 +5,6 @@ import (
 	"encoding/gob"
 	"encoding/json"
 	"fmt"
-	"time"
 
 	"github.com/syaiful6/sersan"
 )
@@ -27,15 +26,18 @@ func (js JSONSerializer) Serialize(s *sersan.Session) ([]byte, error) {
 		}
 		m[ks] = v
 	}
-	return json.Marshal(jses)
+	return json.Marshal(m)
 }
 
 func (js JSONSerializer) Deserialize(b []byte, ss *sersan.Session) error {
 	m := make(map[string]interface{})
-	err := json.Unmarshal(d, &m)
+	err := json.Unmarshal(b, &m)
 	if err != nil {
 		fmt.Printf("sersan.redis.JSONSerializer.deserialize() Error: %v", err)
 		return err
+	}
+	if ss.Values == nil {
+		ss.Values = make(map[interface{}]interface{})
 	}
 	for k, v := range m {
 		ss.Values[k] = v
@@ -56,6 +58,6 @@ func (g GobSerializer) Serialize(ss *sersan.Session) ([]byte, error) {
 }
 
 func (g GobSerializer) Deserialize(b []byte, ss *sersan.Session) error {
-	dec := gob.NewDecoder(bytes.NewBuffer(d))
+	dec := gob.NewDecoder(bytes.NewBuffer(b))
 	return dec.Decode(&ss.Values)
 }

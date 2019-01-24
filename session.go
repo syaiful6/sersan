@@ -3,6 +3,7 @@ package sersan
 import (
 	"encoding/base32"
 	"fmt"
+	"reflect"
 	"strings"
 	"time"
 
@@ -44,6 +45,11 @@ func NewSession(id, authId string, now time.Time) *Session {
 		CreatedAt:  now,
 		AccessedAt: now,
 	}
+}
+
+// Note, we omit CreatedAt and AccessedAt
+func (sess *Session) Equal(other *Session) bool {
+	return sess.ID == other.ID && sess.AuthID == other.AuthID && reflect.DeepEqual(sess.Values, other.Values)
 }
 
 func (sess *Session) ExpireAt(IdleTimeout, absoluteTimeout int) time.Time {
