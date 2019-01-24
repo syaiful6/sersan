@@ -87,8 +87,8 @@ func (s *StorageRecorder) DestroyAllOfAuthId(authId string) error {
 
 func (s *StorageRecorder) Insert(sess *Session) error {
 	s.operations = append(s.operations, &RecorderOperation{Tag: "Insert", Session: sess})
-	if old, ok := s.sessions[sess.ID]; ok {
-		return &SessionAlreadyExists{OldSession: old, NewSession: sess}
+	if _, ok := s.sessions[sess.ID]; ok {
+		return SessionAlreadyExists{ID: sess.ID}
 	}
 
 	s.sessions[sess.ID] = sess
@@ -102,7 +102,7 @@ func (s *StorageRecorder) Replace(sess *Session) error {
 		return nil
 	}
 
-	return &SessionDoesNotExist{Session: sess}
+	return SessionDoesNotExist{ID: sess.ID}
 }
 
 // Get list of Operations performed in StorageRecorder, remove it from the storage

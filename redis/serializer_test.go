@@ -25,7 +25,7 @@ func TestJSONSerializer(t *testing.T) {
 		t.Fatalf("JSONSerializer.Deserialize expected non nil error, it return error: %v", err)
 	}
 
-	if !reflect.DeepEqual(sess, sess2) {
+	if !reflect.DeepEqual(sess.Values, sess2.Values) {
 		t.Fatal("JSONSerializer serialize(deserialize(sess)) != sess")
 	}
 }
@@ -47,7 +47,7 @@ func TestGobSerializer(t *testing.T) {
 		t.Fatalf("GobSerializer.Deserialize expected non nil error, it return error: %v", err)
 	}
 
-	if !reflect.DeepEqual(sess, sess2) {
+	if !reflect.DeepEqual(sess.Values, sess2.Values) {
 		t.Fatal("GobSerializer Serialize(Deserialize(sess)) != sess")
 	}
 }
