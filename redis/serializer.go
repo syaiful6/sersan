@@ -17,12 +17,6 @@ type SessionSerializer interface {
 
 type JSONSerializer struct{}
 
-type JSONSession struct {
-	ID, AuthID            string
-	CreatedAt, AccessedAt time.Time
-	Values                map[string]interface{}
-}
-
 func (js JSONSerializer) Serialize(s *sersan.Session) ([]byte, error) {
 	m := make(map[string]interface{}, len(s.Values))
 	for k, v := range s.Values {
@@ -33,51 +27,35 @@ func (js JSONSerializer) Serialize(s *sersan.Session) ([]byte, error) {
 		}
 		m[ks] = v
 	}
-
-	jses := JSONSession{
-		ID:         s.ID,
-		AuthID:     s.AuthID,
-		CreatedAt:  s.CreatedAt,
-		AccessedAt: s.AccessedAt,
-		Values:     m,
-	}
 	return json.Marshal(jses)
 }
 
-func (js JSONSerializer) Deserialize(b []byte, s *sersan.Session) error {
-	jses := JSONSession{}
-	err := json.Unmarshal(b, &jses)
+func (js JSONSerializer) Deserialize(b []byte, ss *sersan.Session) error {
+	m := make(map[string]interface{})
+	err := json.Unmarshal(d, &m)
 	if err != nil {
+		fmt.Printf("sersan.redis.JSONSerializer.deserialize() Error: %v", err)
 		return err
 	}
-	// copy
-	s.ID = jses.ID
-	s.AuthID = jses.AuthID
-	s.CreatedAt = jses.CreatedAt
-	s.AccessedAt = jses.AccessedAt
-	if s.Values == nil {
-		s.Values = make(map[interface{}]interface{})
+	for k, v := range m {
+		ss.Values[k] = v
 	}
-	for k, v := range jses.Values {
-		s.Values[k] = v
-	}
-
 	return nil
 }
 
 type GobSerializer struct{}
 
-func (g GobSerializer) Serialize(s *sersan.Session) ([]byte, error) {
+func (g GobSerializer) Serialize(ss *sersan.Session) ([]byte, error) {
 	buf := new(bytes.Buffer)
 	enc := gob.NewEncoder(buf)
-	err := enc.Encode(s)
+	err := enc.Encode(ss.Values)
 	if err == nil {
 		return buf.Bytes(), nil
 	}
 	return nil, err
 }
 
-func (g GobSerializer) Deserialize(b []byte, s *sersan.Session) error {
-	dec := gob.NewDecoder(bytes.NewBuffer(b))
-	return dec.Decode(&s)
+func (g GobSerializer) Deserialize(b []byte, ss *sersan.Session) error {
+	dec := gob.NewDecoder(bytes.NewBuffer(d))
+	return dec.Decode(&ss.Values)
 }
