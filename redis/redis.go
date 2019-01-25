@@ -136,19 +136,10 @@ func (rs *RediStore) Destroy(id string) error {
 		return err
 	}
 
-	err = conn.Send("MULTI")
-	if err != nil {
-		return err
-	}
+	conn.Send("MULTI")
 	err = conn.Send("DEL", sk)
-	if err != nil {
-		return err
-	}
 	if authID != "" {
-		err = conn.Send("SREM", rs.authKey(authID), sk)
-		if err != nil {
-			return err
-		}
+		conn.Send("SREM", rs.authKey(authID), sk)
 	}
 	_, err = conn.Do("EXEC")
 	return err
@@ -213,8 +204,11 @@ func (rs *RediStore) Replace(sess *sersan.Session) error {
 
 	sk := rs.keyPrefix + sess.ID
 	oldAuthID, err := redis.String(conn.Do("HGET", sk, "AuthID"))
-	if err != nil && err == redis.ErrNil {
-		return sersan.SessionDoesNotExist{ID: sess.ID}
+	if err != nil {
+		if err == redis.ErrNil {
+			return sersan.SessionDoesNotExist{ID: sess.ID}
+		}
+		return err
 	}
 
 	sh, err := newSessionHashFrom(sess, rs.serializer)
