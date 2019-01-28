@@ -161,6 +161,7 @@ func NewServerSessionState(storage Storage, keyPairs ...[]byte) *ServerSessionSt
 		Codecs:          securecookie.CodecsFromPairs(keyPairs...),
 		IdleTimeout:     604800,  // 7 days
 		AbsoluteTimeout: 5184000, // 60 days
+		AuthKey:         "_authID",
 		Options: &Options{
 			Path:     "/",
 			HttpOnly: true,

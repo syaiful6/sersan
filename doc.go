@@ -5,7 +5,7 @@ data is saved on a storage backend.
 
 This package includes 2 implementation of *Backend (storage)*. It includes:
 
-* Redis: Storage backend for using *Redis* via [https://github.com/gomodule/redigo](redigo).
+* Redis: Storage backend for using *Redis* via [redigo](https://github.com/gomodule/redigo).
 * Recorder(testing): Storage backend for testing purpose.
 
 The API is simple. Here an example that shows the sersan API:
