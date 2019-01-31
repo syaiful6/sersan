@@ -8,18 +8,18 @@ import (
 	"github.com/gorilla/securecookie"
 )
 
-type SessionResponseWriter struct {
+type sessionResponseWriter struct {
 	http.ResponseWriter
 
 	hasWritten bool
 
-	data        map[interface{}]interface{}
-	token       *SaveSessionToken
-	serverState *ServerSessionState
+	data  map[interface{}]interface{}
+	token *SaveSessionToken
+	ss    *ServerSessionState
 }
 
-func newSessionResponseWriter(w http.ResponseWriter, token *SaveSessionToken) *SessionResponseWriter {
-	return &SessionResponseWriter{
+func newSessionResponseWriter(w http.ResponseWriter, token *SaveSessionToken) *sessionResponseWriter {
+	return &sessionResponseWriter{
 		ResponseWriter: w,
 		token:          token,
 	}
@@ -27,6 +27,8 @@ func newSessionResponseWriter(w http.ResponseWriter, token *SaveSessionToken) *S
 
 type sessionContextKey struct{}
 
+// SessionMiddleware for loading and saving session data. Make sure to use this
+// middleware.
 func SessionMiddleware(ss *ServerSessionState) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -45,7 +47,7 @@ func SessionMiddleware(ss *ServerSessionState) func(http.Handler) http.Handler {
 
 			nw := newSessionResponseWriter(w, token)
 			nw.data = data
-			nw.serverState = ss
+			nw.ss = ss
 
 			nr := r.WithContext(context.WithValue(r.Context(), sessionContextKey{}, data))
 
@@ -54,6 +56,8 @@ func SessionMiddleware(ss *ServerSessionState) func(http.Handler) http.Handler {
 	}
 }
 
+// Get session data associated for this request. Make sure call this function after
+// `SessionMiddleare` run.
 func GetSession(r *http.Request) (map[interface{}]interface{}, error) {
 	var ctx = r.Context()
 	data := ctx.Value(sessionContextKey{})
@@ -64,7 +68,7 @@ func GetSession(r *http.Request) (map[interface{}]interface{}, error) {
 	return nil, errors.New("sersan: no session data found in request, perhaps you didn't use Sersan's middleware?")
 }
 
-func (w *SessionResponseWriter) WriteHeader(code int) {
+func (w *sessionResponseWriter) WriteHeader(code int) {
 	if !w.hasWritten {
 		if err := w.saveSession(); err != nil {
 			panic(err)
@@ -73,7 +77,7 @@ func (w *SessionResponseWriter) WriteHeader(code int) {
 	w.ResponseWriter.WriteHeader(code)
 }
 
-func (w *SessionResponseWriter) Write(b []byte) (int, error) {
+func (w *sessionResponseWriter) Write(b []byte) (int, error) {
 	if !w.hasWritten {
 		if err := w.saveSession(); err != nil {
 			return 0, err
@@ -82,31 +86,36 @@ func (w *SessionResponseWriter) Write(b []byte) (int, error) {
 	return w.ResponseWriter.Write(b)
 }
 
-func (w *SessionResponseWriter) saveSession() error {
+func (w *sessionResponseWriter) saveSession() error {
 	if w.hasWritten {
 		panic("should not call saveSession twice")
 	}
+
+	w.hasWritten = true
 
 	var (
 		err  error
 		sess *Session
 	)
 
-	if sess, err = w.serverState.Save(w.token, w.data); err != nil {
+	if sess, err = w.ss.Save(w.token, w.data); err != nil {
 		return err
 	}
 
 	if sess == nil {
-		http.SetCookie(w, newCookieFromOptions(w.serverState.cookieName, "", -1, w.serverState.Options))
+		http.SetCookie(w,
+			newCookieFromOptions(w.ss.cookieName, "", -1, w.ss.Options))
 		return nil
 	}
 
-	encoded, err := securecookie.EncodeMulti(w.serverState.cookieName, sess.ID,
-		w.serverState.Codecs...)
+	encoded, err := securecookie.EncodeMulti(w.ss.cookieName, sess.ID,
+		w.ss.Codecs...)
 	if err != nil {
 		return err
 	}
 
-	http.SetCookie(w, newCookieFromOptions(w.serverState.cookieName, encoded, w.serverState.nextExpiresMaxAge(sess), w.serverState.Options))
+	http.SetCookie(w,
+		newCookieFromOptions(w.ss.cookieName, encoded,
+			sess.MaxAge(w.ss.IdleTimeout, w.ss.AbsoluteTimeout, w.token.now), w.ss.Options))
 	return nil
 }
