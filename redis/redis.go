@@ -11,6 +11,7 @@ import (
 // 30 days
 const defaultSessionExpire = 86400 * 30
 
+// RedisStore implements serssan.Store using Redis backend, via `redigo` library.
 type RediStore struct {
 	Pool                         *redis.Pool
 	DefaultExpire                int
